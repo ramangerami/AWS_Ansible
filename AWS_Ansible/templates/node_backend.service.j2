@@ -1,0 +1,15 @@
+[Unit]
+Description=Backend app, ACIT4640
+After=network.target
+
+[Service]
+Environment=NODE_PORT=8080
+WorkingDirectory=/etc/node_backend_app
+Type=simple
+User=node_backend_app
+ExecStartPre=/bin/sleep 5
+ExecStart=/usr/bin/node /etc/node_backend_app/server.js
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

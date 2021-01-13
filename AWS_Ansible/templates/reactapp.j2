@@ -1,0 +1,15 @@
+[Unit]
+Description=React app, ACIT4640
+After=network.target
+
+[Service]
+Environment=NODE_PORT=8081
+WorkingDirectory={{ application_path }}
+Type=simple
+User={{ reactapp_user }}
+ExecStartPre=/bin/sleep 5
+ExecStart=/usr/bin/npm start {{ application_path }}
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
