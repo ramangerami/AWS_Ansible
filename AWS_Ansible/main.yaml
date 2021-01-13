@@ -1,0 +1,49 @@
+---
+# This will run the AWS EC2 provisioning
+- hosts: localhost
+  vars:
+    AWS_PREFIX: APP_VM
+  tasks:
+    - import_tasks: aws_tasks.yaml
+      tags:
+        - aws
+        - provision
+        - never
+
+# This will run the application provisioning
+- hosts:  aws_ec2
+  vars:
+    backend_user: node_backend_app
+    backend_db_user: node_app
+    backend_db_password: password
+    backend_db_name: assignment_db
+    application_path: /etc/node_backend_app
+    reactapp_user: reactapp
+    front_application_path: /etc/frontend_app
+  tasks:
+    - import_tasks: application_setup.yaml
+      tags:
+        - application
+        - provision
+        - never
+
+# This will provide information on our EC2 instance and application
+- hosts:  localhost
+  vars:
+    AWS_PREFIX: APP_VM
+  tasks:
+    - import_tasks: info_tasks.yaml
+      tags:
+        - info
+        - always
+        - provision
+
+# This will run the termination of the EC2 and VPC
+- hosts:  localhost
+  vars:
+    AWS_PREFIX: APP_VM
+  tasks:
+    - import_tasks: clean.yaml
+      tags:
+        - clean
+        - never
