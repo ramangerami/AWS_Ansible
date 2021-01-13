@@ -1,0 +1,321 @@
+---
+# SE Linux permnissive configuration
+- name: Put SELinux in permissive mode, logging actions that would be blocked.
+  become: yes
+  selinux:
+    policy: targeted
+    state: permissive
+
+# Install MySQL Server on our EC2 instance
+- name: Install MySQL Server
+  become: yes
+  package:
+    name: mysql-server
+    state:  present
+
+# Install Python 3 and PyMySQL package (neccesary for MySQL-server)
+- name: Install Pyton3 and PyMySQL 
+  become: yes
+  package:
+    name: python3-PyMySQL
+    state:  present
+
+# Enable MySQL service on our EC2 instance
+- name: Make sure that MySQL Server is running and enabled
+  become: yes
+  systemd:
+    name: mysqld
+    enabled: yes
+    state:  started
+
+# Create a MySQL database for the application
+- name: Create a new database for our application
+  become: yes
+  community.mysql.mysql_db:
+    name: "{{ backend_db_name }}"
+    state: present
+
+# Create a MySQL database user for the application database
+- name: Create database user for our application db
+  become: yes
+  community.mysql.mysql_user:
+    name: "{{ backend_db_user }}"
+    password: "{{ backend_db_password }}"
+    priv: '*.*:ALL'
+    state: present
+
+# Install firewalld python module on EC2 instance to allow firewall rule modification
+- name: Install firewalld package
+  become: yes
+  package:
+    name: firewalld
+    state: present
+
+# Ensure that firewalld is up and running on our EC2 instance
+- name: Make sure firewalld is running
+  become: yes
+  systemd:
+    name: firewalld
+    enabled: yes
+    state: started
+
+- name: Provision the nodejs repository
+  become: yes
+  get_url: 
+    url: https://rpm.nodesource.com/setup_14.x
+    dest: /tmp/nodejs_repo_setup.sh
+  register: nodejs_repo_script
+
+- name: Setup the nodejs repo
+  become: yes
+  when: nodejs_repo_script.changed
+  shell: bash /tmp/nodejs_repo_setup.sh
+
+# Install nodejs and git
+- name: Make sure nodejs is installed
+  become: yes
+  package:
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - git
+    - nodejs
+
+# Check if the appropriate user exists
+- name: Checking if backend User Exists
+  become: yes
+  user:
+    name: "{{ backend_user }}"
+
+# Create application directory on ec2 instance
+- name: Making App Directory
+  become: yes
+  file:
+    path: "{{ application_path }}"
+    state: directory
+    mode: "0755"
+
+# Grant apporpriate permissions on application directory
+- name: Change App Directory Ownership
+  become: yes
+  file:
+    path: "{{ application_path }}"
+    state: directory
+    recurse: yes
+    owner: "{{ backend_user }}"
+    group: "{{ backend_user }}"
+
+# Git clone from the github for back end code
+- name: Make sure the git repo is up to date
+  become: yes
+  become_user: "{{backend_user}}"
+  git:
+    repo: https://github.com/bezkoder/nodejs-express-sequelize-mysql.git
+    dest: "{{ application_path }}"
+    force: yes
+
+# Configure MySQL settings for our application
+- name: Provision the config files for mysql
+  become: yes
+  copy: 
+    src: db.config.js
+    dest: "{{ application_path }}/app/config/db.config.js"
+
+# Provision our server.js file
+- name: Provision server.js
+  become: yes
+  copy:
+    src: server.js
+    dest: /etc/node_backend_app/server.js
+
+# run npm install
+- name: Update packages based on package.json.
+  become: yes
+  become_user: "{{backend_user}}"
+  npm:
+    path: "{{ application_path }}"
+    state: latest
+
+# Make the views directory in backend user
+- name: Making views Directory
+  become: yes
+  become_user: "{{backend_user}}"
+  file:
+    path: "{{ application_path }}/views"
+    state: directory
+
+# Template out the service file
+- name: Template out the service file
+  become: yes
+  template: 
+    src: node_backend.service.j2
+    dest: /etc/systemd/system/node_backend.service
+
+# Firewall config
+- name: Manage the firewall
+  become: yes
+  firewalld:
+    port: 8080/tcp
+    state: enabled
+    permanent: yes
+
+# Ensure that port 3306 is open to allow connection for our db
+- name: Make sure MySQL port is open
+  become: yes
+  firewalld:
+    port: 3306/tcp
+    state: enabled
+    permanent: yes
+    immediate: yes
+
+# Prepare Node.js repo for installation
+- name: provision nodejs repo
+  get_url:
+    url: https://rpm.nodesource.com/setup_14.x
+    dest: /tmp/nodejs_repo_setup
+
+# Install git, Node.js and tar packages
+- name: Install packages
+  become: yes
+  package: 
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - git
+    - nodejs
+    - tar
+
+# Ensure the reactapp User was created
+- name: Checking if reactapp User Exists
+  become: yes
+  user:
+    name: "{{ reactapp_user }}"
+
+# Create our application directory
+- name: Making App Directory
+  become: yes
+  file:
+    path: "{{ front_application_path }}"
+    state: directory
+    mode: "0755"
+
+# Modify applciation directory permissions and ownership
+- name: Change App Directory Ownership
+  become: yes
+  file:
+    path: "{{ front_application_path }}"
+    state: directory
+    recurse: yes
+    owner: "{{ reactapp_user }}"
+    group: "{{ reactapp_user }}"
+
+# Check if our git repo is up to date
+- name: Checking if git Repo is up to date
+  become: yes
+  become_user: "{{ reactapp_user }}"
+  git:
+    repo: https://github.com/bezkoder/react-crud-web-api.git
+    dest: "{{ front_application_path }}"
+    force: yes
+
+# Ensures the app configuration settings are correct by modifying src file
+- name: Make sure the  settings are correct in the app
+  become: yes
+  become_user: "{{ reactapp_user }}"
+  replace:
+    path: "{{ front_application_path }}/src/http-common.js"
+    regexp: "http://localhost:8080/api"
+    replace: "/api"
+
+# provision index.js
+- name: Provision server.js
+  become: yes
+  become_user: "{{ reactapp_user }}"
+  copy:
+    src: index.js
+    dest: "{{ front_application_path }}/src/index.js"
+
+# Template out the service file
+- name: Template out the service file
+  become: yes
+  template: 
+    src: reactapp.j2
+    dest: /etc/systemd/system/reactapp.service
+
+# Run NPM install in order to install the front end application
+- name: run NPM install
+  become: yes
+  npm:
+    path: "{{ front_application_path }}"
+    state: latest
+
+# build the application
+- name: NPM build
+  become: yes
+  become_user: "{{ reactapp_user }}"
+  shell: npm run-script build
+  args:
+    chdir: "/etc/frontend_app"
+
+# Move the build files to the node app views folder
+- name: provision views folder
+  become: yes
+  shell: cp -a /etc/frontend_app/build /etc/node_backend_app/app/views
+
+# Start and enabled our application service
+- name: Start and Enable App service
+  become: yes
+  systemd:
+    name: reactapp
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
+# Install Nginx on our EC2 Instance
+- name: Install Nginx
+  become: yes
+  package:
+    name: nginx
+    state: present
+
+# Use the Nginx configuration file from our files directory to update Nginx settings
+- name: Provision nginx.conf
+  become: yes
+  copy:
+    src: nginx.conf
+    dest: /etc/nginx/nginx.conf
+  
+# Enable Nginx service on our EC2 instance
+- name: Make sure that Nginx is running and enabled
+  become: yes
+  systemd:
+    name: nginx
+    enabled: yes
+    state:  started
+
+# Ensure that port 8081 is open to allow connection for our db
+- name: Make sure app port is open
+  become: yes
+  firewalld:
+    port: 8081/tcp
+    state: enabled
+    permanent: yes
+    immediate: yes
+
+# Ensure that port 8080 is open to allow connection for our db
+- name: Make sure nginx port is open
+  become: yes
+  firewalld:
+    port: 8080/tcp
+    state: enabled
+    permanent: yes
+    immediate: yes
+
+# Enable our application service and make sure it runs
+- name: start the application back end
+  become: yes
+  systemd:
+    name: node_backend
+    state: started
+    enabled: yes
+    daemon_reload: yes
