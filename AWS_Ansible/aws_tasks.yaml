@@ -1,0 +1,116 @@
+---
+    # Provision the VPC in AWS
+    - name: Provision the VPC
+      ec2_vpc_net:
+        name: "{{ AWS_PREFIX }}_VPC"
+        cidr_block: 10.42.0.0/16
+        region: us-west-2
+      register: vpc_info
+  
+    # Provision the subnet in AWS
+    - name: Provision the subnet
+      ec2_vpc_subnet:
+        vpc_id: "{{ vpc_info.vpc.id }}"
+        cidr: 10.42.10.0/24
+        region: us-west-2
+        az: us-west-2b
+        tags:
+          Name: "{{ AWS_PREFIX }}_SUBNET"
+      register: subnet_info
+    
+    # Provision the Internet gateway in AWS
+    - name: Provision the Internet gateway
+      ec2_vpc_igw: 
+        vpc_id: "{{ vpc_info.vpc.id }}"
+        region: us-west-2
+        tags:
+          Name: "{{ AWS_PREFIX }}_IGW"
+      register: igw_info
+    
+    # Provison the routing table in AWS
+    - name: Provision the routing table
+      ec2_vpc_route_table:
+        vpc_id: "{{ vpc_info.vpc.id }}"
+        region: us-west-2
+        tags:
+          Name: "{{ AWS_PREFIX }}_RTBL"
+        subnets:
+          - "{{ subnet_info.subnet.id }}"
+        routes:
+          - dest: 0.0.0.0/0
+            gateway_id: "{{ igw_info.gateway_id }}"
+      register: public_route_table
+
+    # Get the localhost's public IP
+    - name: Get my Public IP
+      uri:
+        url:  http://ifconfig.me/ip
+        return_content: yes
+      register: my_public_ip
+
+    # Provision the security group in AWS
+    - name: Provision the security group
+      ec2_group:
+        name: "{{ AWS_PREFIX }}_SECGRP"
+        description:  Security group for todoapp servivce
+        vpc_id: "{{ vpc_info.vpc.id }}"
+        region: us-west-2
+        tags:
+          Name: "{{ AWS_PREFIX }}_SECGRP"
+        rules:
+          - proto:  tcp
+            ports:
+              - 80
+            cidr_ip:  0.0.0.0/0
+            rule_desc:  allow all on port 80
+          - proto:  tcp
+            ports:
+              - 22
+            cidr_ip:  0.0.0.0/0
+            rule_desc:  allow all on port 27017
+          - proto:  tcp
+            ports:
+              - 8080
+            cidr_ip: 0.0.0.0/0
+            rule_desc: allow all on port 8080
+          
+
+    # Provision the EC2 instance in AWS
+    - name: Provision the EC2 instance
+      ec2:
+        image: ami-0157b1e4eefd91fd7
+        instance_type:  t2.medium
+        group:  "{{ AWS_PREFIX }}_SECGRP"
+        assign_public_ip: yes
+        region: us-west-2
+        zone: us-west-2b
+        vpc_subnet_id:  "{{ subnet_info.subnet.id }}"
+        key_name: ACIT4640_KEY
+        instance_tags:
+          Name: "{{ AWS_PREFIX }}_VM"
+        exact_count: 1
+        count_tag:
+          Name: "{{ AWS_PREFIX }}_VM"
+        wait: yes
+      register: ec2_info
+
+    # Wait to connect to the EC2 instance through SSH
+    - name: Wait for the virtual machine to be up (SSH)
+      wait_for:
+        port: 22
+        host: "{{ ec2_info.tagged_instances[0].public_ip }}"
+    
+    # Refresh the ansible inventory
+    - name: Refresh Ansible inventory
+      meta: refresh_inventory
+
+    
+        
+
+
+
+
+
+
+
+
