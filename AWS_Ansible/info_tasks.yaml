@@ -1,0 +1,28 @@
+---
+# Get info of our EC2 instance
+- name: Get EC2 info
+  ec2_instance_info:
+    region: us-west-2
+    filters:
+      "tag:Name": "{{AWS_PREFIX}}_VM"
+      instance-state-name: running
+  register: ec2_info
+
+# Display the publc IP address of our EC2 instance
+- name: Display Public IP
+  debug:
+    msg:  "{{ ec2_info.instances[0].public_ip_address}}:8080, is the public IP address of our instance.
+    NOTE: application is running on port 8080"
+
+# Get the status of the application
+- name: Get application status
+  uri:
+    url: "http://{{ ec2_info.instances[0].public_ip_address }}:8080"
+    status_code:  200
+  register: http_status_code
+
+# Display the status code of our HTTP request to server
+- name: Display HTTP status code
+  debug:
+    msg:  "Status code is: {{ http_status_code.status }}, this means the app is running!"
+
